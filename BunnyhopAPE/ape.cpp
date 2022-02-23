@@ -1,6 +1,8 @@
 #include <Windows.h>
+#include <fstream>
 #include <iostream>
 #include <stdio.h>
+#include <string>
 #include <conio.h>
 #include "ape_helpers.h"
 
@@ -8,6 +10,7 @@ HANDLE g_hProcess;
 BYTE* g_pJumpPrediction;
 BYTE g_patchedBuffer[6];
 BYTE g_nopBuffer[6] = { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
+char g_cKey;
 bool g_bPatched;
 int g_iOldState;
 
@@ -20,7 +23,10 @@ void Error(char* text)
 void UpdateConlole()
 {
 	system("cls");
-	printf("Use SCROLL LOCK to toggle prediction.\nPrediction status: %s\n", g_bPatched ? "ON" : "OFF");
+	if(g_cKey)
+		printf("Use %c to toggle prediction.\nPrediction status: %s\n", g_cKey, g_bPatched ? "ON" : "OFF");
+	else
+		printf("Use designated key to toggle prediction.\nPrediction status: %s\n", g_bPatched ? "ON" : "OFF");
 }
 
 void EnablePrediction()
@@ -46,6 +52,31 @@ void DisablePrediction(bool notify = true)
 	UpdateConlole();
 }
 
+SHORT read_config()
+{
+	std::ifstream infile("BunnyhopAPE.cfg");
+	std::string sLine;
+	if (!infile.good()) Error("Missing config file. Is BunnyhopAPE.cfg in the same directory as BunnyhopAPE.exe?");
+	while (infile.good())
+	{
+		std::getline(infile, sLine);
+		if (!sLine.empty()) break;
+	}
+	sLine.erase(remove(sLine.begin(), sLine.end(), ' '), sLine.end());
+	std::string sKey = sLine.substr(sLine.find("=") + 1);
+	if (sKey.length() > 1)
+	{
+		SHORT cKey;
+		sscanf(&sKey[0], "%hi", &cKey);
+		return cKey;
+	}
+	else if(sKey.length() == 1) {
+		char cKey = char(std::tolower(sKey[0]));
+		g_cKey = cKey;
+		return VkKeyScanExA(cKey, GetKeyboardLayout(0));
+	}
+}
+
 bool WINAPI ConsoleHandler(DWORD dwCtrlType)
 {
 	if (dwCtrlType == CTRL_CLOSE_EVENT && g_bPatched)
@@ -58,8 +89,10 @@ int main()
 {
 	SetConsoleTitle("CS:S Autobhop Prediction Enabler by alkatrazbhop");
 
+	SHORT iVertKey = read_config();
 	DWORD processID;
 	printf("Waiting for CS:S to start...");
+	
 	while (1)
 	{
 		processID = GetPIDByName("hl2.exe");
@@ -77,6 +110,7 @@ int main()
 		Sleep(100);
 	}
 
+	//Check for insecure key
 	DWORD pHL = (DWORD)GetModuleHandleExtern(processID, "hl2.exe");
 	DWORD* pCmdLine = (DWORD*)(FindPatternEx(g_hProcess, pHL, 0x4000, (PBYTE)"\x85\xC0\x79\x08\x6A\x08", "xxxxxx") - 0x13);
 	char* cmdLine = new char[255];
@@ -93,9 +127,10 @@ int main()
 
 	while (1)
 	{
-		if (GetKeyState(VK_SCROLL) & 1 && !g_bPatched)
+		// Enable/Disable
+		if (GetKeyState(iVertKey) & 1 && !g_bPatched)
 			EnablePrediction();
-		else if (!(GetKeyState(VK_SCROLL) & 1) && g_bPatched)
+		else if (!(GetKeyState(iVertKey) & 1) && g_bPatched)
 			DisablePrediction();
 		Sleep(100);
 	}
